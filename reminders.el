@@ -196,6 +196,7 @@
 
 (defun reminders--display-reminders (list-name)
   "Display reminders from LIST-NAME."
+  (message "Loading reminders from %s..." list-name)
   (let* ((args (list "show" list-name))
          (args (if reminders-show-completed
                    (append args '("--include-completed"))
@@ -220,7 +221,8 @@
           (insert "No reminders.\n")
         (dolist (reminder reminders)
           (reminders--insert-reminder reminder index)
-          (setq index (1+ index)))))))
+          (setq index (1+ index)))))
+    (message "Loaded %d reminders from %s" (length reminders) list-name)))
 
 ;;; Interactive commands
 
