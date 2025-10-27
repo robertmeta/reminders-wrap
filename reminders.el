@@ -62,6 +62,7 @@
     (define-key map (kbd "P") 'reminders-set-priority)
     (define-key map (kbd "D") 'reminders-set-due-date)
     (define-key map (kbd "s") 'reminders-sort-by-due-date)
+    (define-key map (kbd "?") 'reminders-help)
     map)
   "Keymap for `reminders-mode'.")
 
@@ -312,11 +313,11 @@ Returns list with display-index added to each reminder."
       (if (and (boundp 'evil-mode) evil-mode (eq evil-state 'normal))
           ;; Evil mode keybindings
           (progn
-            (insert "Commands: [c/RET] toggle  [a] add  [e] edit  [x] delete  [r] refresh  [l] list  [t] toggle completed  [q] quit\n")
+            (insert "Commands: [c/RET] toggle  [a] add  [e] edit  [x] delete  [r] refresh  [l] list  [t] toggle completed  [q] quit  [?] help\n")
             (insert "          [N] notes  [P] priority  [D] due date  [s] sort  [L] all lists  [j/k] move\n\n"))
         ;; Emacs keybindings
         (progn
-          (insert "Commands: [RET] toggle  [a] add  [e] edit  [d] delete  [g] refresh  [l] switch list  [t] toggle completed  [q] quit\n")
+          (insert "Commands: [RET] toggle  [a] add  [e] edit  [d] delete  [g] refresh  [l] switch list  [t] toggle completed  [q] quit  [?] help\n")
           (insert "          [N] notes  [P] priority  [D] due date  [s] sort  [L] all lists\n\n")))
       (if reminders-show-completed
           ;; Show all reminders when in show-completed mode
@@ -543,6 +544,88 @@ Returns list with display-index added to each reminder."
       (reminders--run-command "add" reminders-default-list title)
       (message "Added: %s" title))))
 
+(defun reminders-help ()
+  "Show help documentation for reminders-mode."
+  (interactive)
+  (with-current-buffer (get-buffer-create "*Reminders Help*")
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      (insert "Reminders Mode Help\n")
+      (insert "===================\n\n")
+
+      (insert "FEATURES:\n")
+      (insert "  • View active and recently completed reminders (last 7 days)\n")
+      (insert "  • Toggle completion status\n")
+      (insert "  • Add, edit, and delete reminders\n")
+      (insert "  • Add and edit notes with clickable links\n")
+      (insert "  • Set priorities (high/medium/low) and due dates\n")
+      (insert "  • Sort by due date or creation date (ascending/descending)\n")
+      (insert "  • Switch between reminder lists\n")
+      (insert "  • Full Emacspeak integration for screen readers\n")
+      (insert "  • Evil mode support with vim-like keybindings\n\n")
+
+      (insert "EMACS KEYBINDINGS:\n")
+      (insert "  RET     - Toggle completion status\n")
+      (insert "  a       - Add new reminder\n")
+      (insert "  e       - Edit reminder title\n")
+      (insert "  d       - Delete reminder\n")
+      (insert "  g       - Refresh list\n")
+      (insert "  l       - Switch to different list\n")
+      (insert "  L       - Show all lists\n")
+      (insert "  t       - Toggle showing all completed items\n")
+      (insert "  N       - Add/edit notes\n")
+      (insert "  P       - Set priority (1=high, 5=medium, 9=low)\n")
+      (insert "  D       - Set due date (YYYY-MM-DD)\n")
+      (insert "  s       - Cycle through sort options\n")
+      (insert "  n       - Next line\n")
+      (insert "  p       - Previous line\n")
+      (insert "  q       - Quit window\n")
+      (insert "  ?       - Show this help\n\n")
+
+      (insert "EVIL MODE KEYBINDINGS (when Evil is active):\n")
+      (insert "  RET, c  - Toggle completion status\n")
+      (insert "  a, A    - Add new reminder\n")
+      (insert "  x, X    - Delete reminder\n")
+      (insert "  e, E    - Edit reminder\n")
+      (insert "  r, R    - Refresh list\n")
+      (insert "  l       - Switch list\n")
+      (insert "  L       - Show all lists\n")
+      (insert "  t       - Toggle show completed\n")
+      (insert "  N       - Add/edit notes\n")
+      (insert "  P       - Set priority\n")
+      (insert "  D       - Set due date\n")
+      (insert "  s       - Cycle sort options\n")
+      (insert "  j, k    - Move down/up\n")
+      (insert "  h, l    - Move left/right\n")
+      (insert "  gg, G   - Jump to top/bottom\n")
+      (insert "  0, $    - Jump to line start/end\n")
+      (insert "  q, ZZ   - Quit window\n")
+      (insert "  ?       - Show this help\n\n")
+
+      (insert "SORTING:\n")
+      (insert "  Press 's' to cycle through sort options:\n")
+      (insert "    • None (default order)\n")
+      (insert "    • Due date (ascending)\n")
+      (insert "    • Due date (descending)\n")
+      (insert "    • Creation date (ascending)\n")
+      (insert "    • Creation date (descending)\n\n")
+
+      (insert "RECENTLY COMPLETED:\n")
+      (insert "  Items completed in the last 7 days appear at the bottom\n")
+      (insert "  with letter indices (a, b, c...) instead of numbers.\n")
+      (insert "  This lets you quickly undo accidental completions and\n")
+      (insert "  review what you've accomplished recently.\n\n")
+
+      (insert "EDITING NOTES:\n")
+      (insert "  Click 'Read Notes' or press RET on the link to open notes.\n")
+      (insert "  Edit the notes, then press C-c C-c or C-x C-s to save.\n")
+      (insert "  Press 'q' to quit without saving.\n\n")
+
+      (insert "Press 'q' to close this help buffer.")
+      (goto-char (point-min))
+      (view-mode)
+      (switch-to-buffer (current-buffer)))))
+
 ;;; Major mode
 
 (define-derived-mode reminders-mode special-mode "Reminders"
@@ -605,7 +688,8 @@ Evil mode keybindings (when Evil is loaded):
     (evil-local-set-key 'normal (kbd "s") 'reminders-sort-by-due-date)
     (evil-local-set-key 'normal (kbd "q") 'quit-window)
     (evil-local-set-key 'normal (kbd "ZZ") 'quit-window)
-    (evil-local-set-key 'normal (kbd "ZQ") 'quit-window)))
+    (evil-local-set-key 'normal (kbd "ZQ") 'quit-window)
+    (evil-local-set-key 'normal (kbd "?") 'reminders-help)))
 
 (with-eval-after-load 'evil
   ;; Use normal state for vim-like bindings
