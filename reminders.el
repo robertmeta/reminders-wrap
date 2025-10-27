@@ -9,6 +9,16 @@
 
 ;; This package provides an Emacs interface to the macOS `reminders` CLI tool.
 ;; It allows you to view, add, edit, complete, and delete reminders from within Emacs.
+;;
+;; Features:
+;; - View active and recently completed reminders
+;; - Toggle completion status with RET
+;; - Add, edit, delete reminders
+;; - Add and edit notes (with clickable links)
+;; - Set priorities and due dates
+;; - Sort by due date or creation date (ascending/descending)
+;; - Full Emacspeak integration for screen reader users
+;; - Evil mode support with vim-like keybindings
 
 ;;; Code:
 
@@ -530,7 +540,23 @@ Returns list with display-index added to each reminder."
 (define-derived-mode reminders-mode special-mode "Reminders"
   "Major mode for viewing and managing macOS Reminders.
 
-\\{reminders-mode-map}"
+Emacs keybindings:
+\\{reminders-mode-map}
+
+Evil mode keybindings (when Evil is loaded):
+  c, RET     - Toggle completion status
+  a, A       - Add new reminder
+  dd, x      - Delete reminder
+  e, cc      - Edit reminder
+  gr, R      - Refresh list
+  l          - Switch list
+  L          - Show all lists
+  t          - Toggle show completed
+  n          - Add/edit notes
+  p          - Set priority
+  d          - Set due date
+  s          - Cycle sort options
+  q, ZZ, ZQ  - Quit window"
   (setq truncate-lines t)
   (setq buffer-read-only t)
   ;; Set up Emacspeak integration
@@ -547,7 +573,35 @@ Returns list with display-index added to each reminder."
 ;;; Evil mode integration
 
 (with-eval-after-load 'evil
-  (evil-set-initial-state 'reminders-mode 'emacs))
+  ;; Use normal state for vim-like bindings
+  (evil-set-initial-state 'reminders-mode 'normal)
+
+  ;; Define Evil keybindings for reminders-mode
+  (evil-define-key 'normal reminders-mode-map
+    (kbd "RET") 'reminders-toggle-complete
+    (kbd "c") 'reminders-toggle-complete      ; complete/uncomplete
+    (kbd "a") 'reminders-add                  ; add new reminder
+    (kbd "A") 'reminders-add                  ; add new reminder
+    (kbd "dd") 'reminders-delete              ; delete reminder
+    (kbd "x") 'reminders-delete               ; delete reminder
+    (kbd "e") 'reminders-edit                 ; edit reminder
+    (kbd "cc") 'reminders-edit                ; change/edit reminder
+    (kbd "gr") 'reminders-refresh             ; refresh (like :e)
+    (kbd "R") 'reminders-refresh              ; refresh
+    (kbd "l") 'reminders-switch-list          ; switch list
+    (kbd "L") 'reminders-show-all-lists       ; show all lists
+    (kbd "t") 'reminders-toggle-show-completed ; toggle completed
+    (kbd "n") 'reminders-add-notes            ; add notes
+    (kbd "p") 'reminders-set-priority         ; set priority
+    (kbd "d") 'reminders-set-due-date         ; set due date
+    (kbd "s") 'reminders-sort-by-due-date     ; sort
+    (kbd "q") 'quit-window                    ; quit
+    (kbd "ZZ") 'quit-window                   ; quit (vim-style)
+    (kbd "ZQ") 'quit-window)                  ; quit without save
+
+  ;; Also support insert mode for quick access
+  (evil-define-key 'insert reminders-mode-map
+    (kbd "C-c C-c") 'evil-normal-state))
 
 ;;; Emacspeak advice
 
