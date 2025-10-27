@@ -308,8 +308,16 @@ Returns list with display-index added to each reminder."
       (when reminders-sort-by
         (insert (format " [sorted by %s %s]" reminders-sort-by reminders-sort-order)))
       (insert "\n\n")
-      (insert "Commands: [RET] toggle  [a] add  [e] edit  [d] delete  [g] refresh  [l] switch list  [t] toggle completed  [q] quit\n")
-      (insert "          [N] notes  [P] priority  [D] due date  [s] sort  [L] all lists\n\n")
+      ;; Show appropriate keybindings based on whether Evil mode is active
+      (if (and (boundp 'evil-mode) evil-mode (eq evil-state 'normal))
+          ;; Evil mode keybindings
+          (progn
+            (insert "Commands: [c/RET] toggle  [a] add  [e/cc] edit  [dd/x] delete  [gr/R] refresh  [l] list  [t] toggle completed  [q] quit\n")
+            (insert "          [n] notes  [p] priority  [d] due date  [s] sort  [L] all lists\n\n"))
+        ;; Emacs keybindings
+        (progn
+          (insert "Commands: [RET] toggle  [a] add  [e] edit  [d] delete  [g] refresh  [l] switch list  [t] toggle completed  [q] quit\n")
+          (insert "          [N] notes  [P] priority  [D] due date  [s] sort  [L] all lists\n\n")))
       (if reminders-show-completed
           ;; Show all reminders when in show-completed mode
           (progn
