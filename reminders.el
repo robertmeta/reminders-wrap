@@ -14,6 +14,7 @@
 
 (require 'json)
 (require 'seq)
+(require 'cl-lib)
 
 (defgroup reminders nil
   "Interface to macOS Reminders CLI."
@@ -137,7 +138,7 @@
                (priority (or (alist-get 'priority reminder) 0))
                (is-completed (eq (alist-get 'isCompleted reminder) t))
                (notes (alist-get 'notes reminder))
-               (index (get-text-property (point) 'reminder-index))
+               (display-idx (or (alist-get 'display-index reminder) 0))
                (due-str (reminders--format-due-date due-date))
                (priority-text (cond
                                ((= priority 1) "high priority")
@@ -150,7 +151,7 @@
                                     (if (string-empty-p priority-text) "" (concat ", " priority-text))
                                     (if (string-empty-p due-str) "" (concat " due " due-str))
                                     (concat ", " status-text)
-                                    index)))
+                                    display-idx)))
           (dtk-speak speech-text))
         t))))
 
@@ -160,11 +161,11 @@
   "Save edited notes back to the reminder."
   (interactive)
   (let ((list-name (buffer-local-value 'reminders--notes-list-name (current-buffer)))
-        (index (buffer-local-value 'reminders--notes-index (current-buffer)))
+        (reminder-id (buffer-local-value 'reminders--notes-id (current-buffer)))
         (title (buffer-local-value 'reminders--notes-title (current-buffer)))
         (notes (buffer-substring-no-properties (point-min) (point-max))))
-    (when (and list-name index title)
-      (reminders--run-command "edit" list-name (number-to-string index)
+    (when (and list-name reminder-id title)
+      (reminders--run-command "edit" list-name reminder-id
                               "--notes" notes title)
       (message "Notes saved")
       (quit-window)
@@ -174,37 +175,39 @@
           (with-current-buffer reminders-buffer
             (reminders-refresh)))))))
 
-(defun reminders--show-notes (notes list-name index title)
-  "Display NOTES in an editable popup buffer for reminder at INDEX in LIST-NAME with TITLE."
+(defun reminders--show-notes (notes list-name reminder-id title)
+  "Display NOTES in an editable popup buffer for reminder with REMINDER-ID in LIST-NAME with TITLE."
   (with-current-buffer (get-buffer-create "*Reminder Notes*")
     (erase-buffer)
     (insert notes)
     (goto-char (point-min))
     (text-mode)
     (setq-local reminders--notes-list-name list-name)
-    (setq-local reminders--notes-index index)
+    (setq-local reminders--notes-id reminder-id)
     (setq-local reminders--notes-title title)
     (local-set-key (kbd "C-c C-c") 'reminders--save-notes-from-buffer)
     (local-set-key (kbd "C-x C-s") 'reminders--save-notes-from-buffer)
     (setq header-line-format "Edit notes - Save with C-c C-c or C-x C-s, quit with q")
     (pop-to-buffer (current-buffer))))
 
-(defun reminders--insert-reminder (reminder index &optional use-letter)
-  "Insert REMINDER at INDEX into the buffer.
-If USE-LETTER is non-nil, use a letter (a, b, c...) instead of a number."
+(defun reminders--insert-reminder (reminder &optional use-letter)
+  "Insert REMINDER into the buffer.
+If USE-LETTER is non-nil, use a letter (a, b, c...) instead of a number for display."
   (let* ((title (alist-get 'title reminder))
          (due-date (alist-get 'dueDate reminder))
          (priority (or (alist-get 'priority reminder) 0))
          (is-completed (eq (alist-get 'isCompleted reminder) t))
          (notes (alist-get 'notes reminder))
+         (external-id (alist-get 'externalId reminder))
+         (display-idx (or (alist-get 'display-index reminder) 0))
          (due-str (reminders--format-due-date due-date))
          (priority-str (reminders--priority-string priority))
          (checkbox (if is-completed "[X]" "[ ]"))
          (face (if is-completed 'shadow 'default))
          (start (point))
          (index-str (if use-letter
-                        (string (+ ?a index))
-                      (format "%2d" index))))
+                        (string (+ ?a display-idx))
+                      (format "%2d" display-idx))))
     (insert (format "%2s: %s %s%s %s"
                     index-str
                     checkbox
@@ -215,11 +218,11 @@ If USE-LETTER is non-nil, use a letter (a, b, c...) instead of a number."
       (insert "\n    ")
       (insert-button "Read Notes"
                      'action (lambda (_button)
-                               (reminders--show-notes notes reminders-current-list index title))
+                               (reminders--show-notes notes reminders-current-list external-id title))
                      'follow-link t
                      'help-echo "Click to view and edit notes"))
     (put-text-property start (point) 'reminder-data reminder)
-    (put-text-property start (point) 'reminder-index index)
+    (put-text-property start (point) 'reminder-id external-id)
     (put-text-property start (point) 'face face)
     ;; Add Emacspeak-specific spoken text
     (when (featurep 'emacspeak)
@@ -229,12 +232,12 @@ If USE-LETTER is non-nil, use a letter (a, b, c...) instead of a number."
                              ((= priority 9) "low priority")
                              (t "")))
              (status-text (if is-completed "completed" "not completed"))
-             (spoken-text (format "%s%s%s%s, item %d"
+             (spoken-text (format "%s%s%s%s, item %s"
                                   title
                                   (if (string-empty-p priority-text) "" (concat ", " priority-text))
                                   (if (string-empty-p due-str) "" (concat " due " due-str))
                                   (concat ", " status-text)
-                                  index)))
+                                  index-str)))
         (put-text-property start (point) 'emacspeak-speak spoken-text)
         (put-text-property start (point) 'personality
                            (if is-completed 'voice-monotone 'voice-bolden))))
@@ -249,11 +252,22 @@ If USE-LETTER is non-nil, use a letter (a, b, c...) instead of a number."
               (days-ago (- (time-to-days now) (time-to-days parsed-date))))
     (and (<= days-ago 7) (>= days-ago 0))))
 
+(defun reminders--add-display-indices (reminders)
+  "Add display index field to each reminder in REMINDERS list.
+Returns list with display-index added to each reminder."
+  (let ((index 0)
+        (result nil))
+    (dolist (reminder reminders)
+      (let ((indexed (cons (cons 'display-index index) reminder)))
+        (push indexed result)
+        (setq index (1+ index))))
+    (nreverse result)))
+
 (defun reminders--display-reminders (list-name)
   "Display reminders from LIST-NAME."
   (message "Loading reminders from %s..." list-name)
   (let* ((args (list "show" list-name))
-         ;; Always include completed to show recently completed
+         ;; Always include completed to get recently completed items
          (args (append args '("--include-completed")))
          (args (if reminders-sort-by
                    (append args (list "--sort" (symbol-name reminders-sort-by)
@@ -265,14 +279,18 @@ If USE-LETTER is non-nil, use a letter (a, b, c...) instead of a number."
                            (lambda (r)
                              (not (eq (alist-get 'isCompleted r) t)))
                            all-reminders))
-         (recently-completed (seq-filter 'reminders--recently-completed-p all-reminders))
-         ;; Keep all for data storage
-         (display-reminders (if reminders-show-completed
-                               all-reminders
-                             (append active-reminders recently-completed))))
+         (recently-completed (if reminders-show-completed
+                                 (seq-filter
+                                  (lambda (r)
+                                    (eq (alist-get 'isCompleted r) t))
+                                  all-reminders)
+                               (seq-filter 'reminders--recently-completed-p all-reminders)))
+         ;; Add display indices for showing to user
+         (indexed-active (reminders--add-display-indices active-reminders))
+         (indexed-recent (reminders--add-display-indices recently-completed)))
     (setq reminders-reminders-data all-reminders)
     (let ((inhibit-read-only t)
-          (index 0))
+          (display-index 0))
       (erase-buffer)
       (insert (format "Reminders - %s" list-name))
       (when reminders-show-completed
@@ -283,28 +301,25 @@ If USE-LETTER is non-nil, use a letter (a, b, c...) instead of a number."
       (insert "Commands: [RET] toggle  [a] add  [e] edit  [d] delete  [g] refresh  [l] switch list  [t] toggle completed  [q] quit\n")
       (insert "          [N] notes  [P] priority  [D] due date  [s] sort  [L] all lists\n\n")
       (if reminders-show-completed
-          ;; Show all reminders as before when in show-completed mode
+          ;; Show all reminders when in show-completed mode
           (progn
             (if (null all-reminders)
                 (insert "No reminders.\n")
-              (dolist (reminder all-reminders)
-                (reminders--insert-reminder reminder index)
-                (setq index (1+ index)))))
+              (let ((all-indexed (reminders--add-display-indices all-reminders)))
+                (dolist (reminder all-indexed)
+                  (reminders--insert-reminder reminder)))))
         ;; Normal mode: show active with numbers, recently completed with letters
-        (if (null active-reminders)
+        (if (null indexed-active)
             (insert "No active reminders.\n")
-          (dolist (reminder active-reminders)
-            (reminders--insert-reminder reminder index)
-            (setq index (1+ index))))
-        (when recently-completed
+          (dolist (reminder indexed-active)
+            (reminders--insert-reminder reminder)))
+        (when indexed-recent
           (insert "\nRecently Completed (last 7 days):\n")
-          (setq index 0)
-          (dolist (reminder recently-completed)
-            (reminders--insert-reminder reminder index t)
-            (setq index (1+ index))))))
+          (dolist (reminder indexed-recent)
+            (reminders--insert-reminder reminder t)))))
     (message "Loaded %d active, %d recently completed from %s"
-             (length active-reminders)
-             (length recently-completed)
+             (length indexed-active)
+             (length indexed-recent)
              list-name)))
 
 ;;; Interactive commands
@@ -349,25 +364,30 @@ If USE-LETTER is non-nil, use a letter (a, b, c...) instead of a number."
   "Toggle completion status of reminder at point."
   (interactive)
   (let* ((reminder (reminders--get-reminder-at-point))
-         (index (get-text-property (point) 'reminder-index)))
+         (reminder-id (get-text-property (point) 'reminder-id)))
     (when reminder
-      (let ((is-completed (eq (alist-get 'isCompleted reminder) t)))
-        (if is-completed
-            (reminders--run-command "uncomplete" reminders-current-list (number-to-string index))
-          (reminders--run-command "complete" reminders-current-list (number-to-string index)))
-        (message "%s: %s"
-                 (if is-completed "Uncompleted" "Completed")
-                 (alist-get 'title reminder))
-        (reminders-refresh)))))
+      (if (null reminder-id)
+          (progn
+            (message "Error: No ID found for '%s'. Please refresh with 'g'."
+                     (alist-get 'title reminder))
+            (reminders-refresh))
+        (let ((is-completed (eq (alist-get 'isCompleted reminder) t)))
+          (if is-completed
+              (reminders--run-command "uncomplete" reminders-current-list reminder-id)
+            (reminders--run-command "complete" reminders-current-list reminder-id))
+          (message "%s: %s"
+                   (if is-completed "Uncompleted" "Completed")
+                   (alist-get 'title reminder))
+          (reminders-refresh))))))
 
 (defun reminders-delete ()
   "Delete reminder at point."
   (interactive)
   (let* ((reminder (reminders--get-reminder-at-point))
-         (index (get-text-property (point) 'reminder-index)))
+         (reminder-id (get-text-property (point) 'reminder-id)))
     (when reminder
       (when (y-or-n-p (format "Delete '%s'? " (alist-get 'title reminder)))
-        (reminders--run-command "delete" reminders-current-list (number-to-string index))
+        (reminders--run-command "delete" reminders-current-list reminder-id)
         (message "Deleted: %s" (alist-get 'title reminder))
         (reminders-refresh)))))
 
@@ -378,9 +398,9 @@ If USE-LETTER is non-nil, use a letter (a, b, c...) instead of a number."
           (current-title (when reminder (alist-get 'title reminder))))
      (list (read-string "New title: " current-title))))
   (let* ((reminder (reminders--get-reminder-at-point))
-         (index (get-text-property (point) 'reminder-index)))
+         (reminder-id (get-text-property (point) 'reminder-id)))
     (when reminder
-      (reminders--run-command "edit" reminders-current-list (number-to-string index) new-title)
+      (reminders--run-command "edit" reminders-current-list reminder-id new-title)
       (message "Updated: %s" new-title)
       (reminders-refresh))))
 
@@ -391,9 +411,9 @@ If USE-LETTER is non-nil, use a letter (a, b, c...) instead of a number."
           (current-notes (when reminder (alist-get 'notes reminder))))
      (list (read-string "Notes: " current-notes))))
   (let* ((reminder (reminders--get-reminder-at-point))
-         (index (get-text-property (point) 'reminder-index)))
+         (reminder-id (get-text-property (point) 'reminder-id)))
     (when reminder
-      (reminders--run-command "edit" reminders-current-list (number-to-string index)
+      (reminders--run-command "edit" reminders-current-list reminder-id
                               "--notes" notes (alist-get 'title reminder))
       (message "Updated notes")
       (reminders-refresh))))
@@ -402,12 +422,12 @@ If USE-LETTER is non-nil, use a letter (a, b, c...) instead of a number."
   "Set priority for reminder at point."
   (interactive)
   (let* ((reminder (reminders--get-reminder-at-point))
-         (index (get-text-property (point) 'reminder-index))
+         (reminder-id (get-text-property (point) 'reminder-id))
          (priority (read-string "Priority (1=high, 5=medium, 9=low, 0=none): " "0")))
     (when reminder
       (reminders--run-command "add" reminders-current-list (alist-get 'title reminder)
                               "--priority" priority)
-      (reminders--run-command "delete" reminders-current-list (number-to-string index))
+      (reminders--run-command "delete" reminders-current-list reminder-id)
       (message "Updated priority")
       (reminders-refresh))))
 
@@ -415,11 +435,11 @@ If USE-LETTER is non-nil, use a letter (a, b, c...) instead of a number."
   "Set due DATE for reminder at point."
   (interactive "sDue date (YYYY-MM-DD): ")
   (let* ((reminder (reminders--get-reminder-at-point))
-         (index (get-text-property (point) 'reminder-index)))
+         (reminder-id (get-text-property (point) 'reminder-id)))
     (when reminder
       (reminders--run-command "add" reminders-current-list (alist-get 'title reminder)
                               "--due-date" date)
-      (reminders--run-command "delete" reminders-current-list (number-to-string index))
+      (reminders--run-command "delete" reminders-current-list reminder-id)
       (message "Updated due date")
       (reminders-refresh))))
 
@@ -559,7 +579,86 @@ If USE-LETTER is non-nil, use a letter (a, b, c...) instead of a number."
   (defadvice reminders-delete (after emacspeak activate)
     "Provide auditory feedback when deleting a reminder."
     (when (ems-interactive-p)
-      (emacspeak-icon 'delete-object))))
+      (emacspeak-icon 'delete-object)))
+
+  (defadvice reminders-refresh (after emacspeak activate)
+    "Provide auditory feedback when refreshing."
+    (when (ems-interactive-p)
+      (emacspeak-icon 'task-done)
+      (dtk-speak "Refreshed")))
+
+  (defadvice reminders-switch-list (after emacspeak activate)
+    "Provide auditory feedback when switching lists."
+    (when (ems-interactive-p)
+      (emacspeak-icon 'select-object)
+      (dtk-speak (format "Switched to list %s" reminders-current-list))))
+
+  (defadvice reminders-toggle-show-completed (after emacspeak activate)
+    "Provide auditory feedback when toggling completed display."
+    (when (ems-interactive-p)
+      (emacspeak-icon 'button)
+      (dtk-speak (if reminders-show-completed
+                     "Showing all completed items"
+                   "Hiding old completed items"))))
+
+  (defadvice reminders-sort-by-due-date (after emacspeak activate)
+    "Provide auditory feedback when changing sort order."
+    (when (ems-interactive-p)
+      (emacspeak-icon 'select-object)
+      (let ((sort-msg (cond
+                       ((null reminders-sort-by) "Sorting disabled")
+                       (t (format "Sorting by %s %s"
+                                  reminders-sort-by
+                                  reminders-sort-order)))))
+        (dtk-speak sort-msg))))
+
+  (defadvice reminders-edit (after emacspeak activate)
+    "Provide auditory feedback when editing a reminder."
+    (when (ems-interactive-p)
+      (emacspeak-icon 'task-done)
+      (dtk-speak "Reminder updated")))
+
+  (defadvice reminders-add-notes (after emacspeak activate)
+    "Provide auditory feedback when updating notes."
+    (when (ems-interactive-p)
+      (emacspeak-icon 'task-done)
+      (dtk-speak "Notes updated")))
+
+  (defadvice reminders-set-priority (after emacspeak activate)
+    "Provide auditory feedback when setting priority."
+    (when (ems-interactive-p)
+      (emacspeak-icon 'task-done)
+      (dtk-speak "Priority updated")))
+
+  (defadvice reminders-set-due-date (after emacspeak activate)
+    "Provide auditory feedback when setting due date."
+    (when (ems-interactive-p)
+      (emacspeak-icon 'task-done)
+      (dtk-speak "Due date updated")))
+
+  (defadvice reminders--save-notes-from-buffer (after emacspeak activate)
+    "Provide auditory feedback when saving notes from buffer."
+    (when (ems-interactive-p)
+      (emacspeak-icon 'save-object)
+      (dtk-speak "Notes saved")))
+
+  (defadvice reminders-show-all-lists (after emacspeak activate)
+    "Provide auditory feedback when showing all lists."
+    (when (ems-interactive-p)
+      (emacspeak-icon 'open-object)
+      (dtk-speak "Showing all reminder lists")))
+
+  (defadvice reminders-new-list (after emacspeak activate)
+    "Provide auditory feedback when creating a new list."
+    (when (ems-interactive-p)
+      (emacspeak-icon 'item)
+      (dtk-speak (format "Created list %s" list-name))))
+
+  (defadvice reminders-quick-add (after emacspeak activate)
+    "Provide auditory feedback when quick adding a reminder."
+    (when (ems-interactive-p)
+      (emacspeak-icon 'item)
+      (dtk-speak "Reminder added"))))
 
 (provide 'reminders)
 
