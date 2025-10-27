@@ -313,7 +313,7 @@ Returns list with display-index added to each reminder."
           ;; Evil mode keybindings
           (progn
             (insert "Commands: [c/RET] toggle  [a] add  [e/cc] edit  [dd/x] delete  [gr/R] refresh  [l] list  [t] toggle completed  [q] quit\n")
-            (insert "          [n] notes  [p] priority  [d] due date  [s] sort  [L] all lists\n\n"))
+            (insert "          [N] notes  [P] priority  [D] due date  [s] sort  [L] all lists  [j/k] move\n\n"))
         ;; Emacs keybindings
         (progn
           (insert "Commands: [RET] toggle  [a] add  [e] edit  [d] delete  [g] refresh  [l] switch list  [t] toggle completed  [q] quit\n")
@@ -560,10 +560,12 @@ Evil mode keybindings (when Evil is loaded):
   l          - Switch list
   L          - Show all lists
   t          - Toggle show completed
-  n          - Add/edit notes
-  p          - Set priority
-  d          - Set due date
+  N          - Add/edit notes
+  P          - Set priority
+  D          - Set due date
   s          - Cycle sort options
+  j/k/h/0/$  - Vim motions
+  gg, G      - Jump to top/bottom
   q, ZZ, ZQ  - Quit window"
   (setq truncate-lines t)
   (setq buffer-read-only t)
@@ -580,36 +582,45 @@ Evil mode keybindings (when Evil is loaded):
 
 ;;; Evil mode integration
 
+(defun reminders--setup-evil-keybindings ()
+  "Set up Evil keybindings for reminders-mode."
+  (when (and (boundp 'evil-mode) evil-mode)
+    ;; Define Evil keybindings in local map
+    (evil-local-set-key 'normal (kbd "RET") 'reminders-toggle-complete)
+    (evil-local-set-key 'normal (kbd "c") 'reminders-toggle-complete)
+    (evil-local-set-key 'normal (kbd "a") 'reminders-add)
+    (evil-local-set-key 'normal (kbd "A") 'reminders-add)
+    (evil-local-set-key 'normal (kbd "dd") 'reminders-delete)
+    (evil-local-set-key 'normal (kbd "x") 'reminders-delete)
+    (evil-local-set-key 'normal (kbd "e") 'reminders-edit)
+    (evil-local-set-key 'normal (kbd "cc") 'reminders-edit)
+    (evil-local-set-key 'normal (kbd "gr") 'reminders-refresh)
+    (evil-local-set-key 'normal (kbd "R") 'reminders-refresh)
+    (evil-local-set-key 'normal (kbd "l") 'reminders-switch-list)
+    (evil-local-set-key 'normal (kbd "L") 'reminders-show-all-lists)
+    (evil-local-set-key 'normal (kbd "t") 'reminders-toggle-show-completed)
+    (evil-local-set-key 'normal (kbd "N") 'reminders-add-notes)
+    (evil-local-set-key 'normal (kbd "P") 'reminders-set-priority)
+    (evil-local-set-key 'normal (kbd "D") 'reminders-set-due-date)
+    (evil-local-set-key 'normal (kbd "s") 'reminders-sort-by-due-date)
+    (evil-local-set-key 'normal (kbd "q") 'quit-window)
+    (evil-local-set-key 'normal (kbd "ZZ") 'quit-window)
+    (evil-local-set-key 'normal (kbd "ZQ") 'quit-window)
+    ;; Keep standard vim motions
+    (evil-local-set-key 'normal (kbd "j") 'evil-next-line)
+    (evil-local-set-key 'normal (kbd "k") 'evil-previous-line)
+    (evil-local-set-key 'normal (kbd "h") 'evil-backward-char)
+    (evil-local-set-key 'normal (kbd "0") 'evil-beginning-of-line)
+    (evil-local-set-key 'normal (kbd "$") 'evil-end-of-line)
+    (evil-local-set-key 'normal (kbd "gg") 'evil-goto-first-line)
+    (evil-local-set-key 'normal (kbd "G") 'evil-goto-line)))
+
 (with-eval-after-load 'evil
   ;; Use normal state for vim-like bindings
   (evil-set-initial-state 'reminders-mode 'normal)
 
-  ;; Define Evil keybindings for reminders-mode
-  (evil-define-key 'normal reminders-mode-map
-    (kbd "RET") 'reminders-toggle-complete
-    (kbd "c") 'reminders-toggle-complete      ; complete/uncomplete
-    (kbd "a") 'reminders-add                  ; add new reminder
-    (kbd "A") 'reminders-add                  ; add new reminder
-    (kbd "dd") 'reminders-delete              ; delete reminder
-    (kbd "x") 'reminders-delete               ; delete reminder
-    (kbd "e") 'reminders-edit                 ; edit reminder
-    (kbd "cc") 'reminders-edit                ; change/edit reminder
-    (kbd "gr") 'reminders-refresh             ; refresh (like :e)
-    (kbd "R") 'reminders-refresh              ; refresh
-    (kbd "l") 'reminders-switch-list          ; switch list
-    (kbd "L") 'reminders-show-all-lists       ; show all lists
-    (kbd "t") 'reminders-toggle-show-completed ; toggle completed
-    (kbd "n") 'reminders-add-notes            ; add notes
-    (kbd "p") 'reminders-set-priority         ; set priority
-    (kbd "d") 'reminders-set-due-date         ; set due date
-    (kbd "s") 'reminders-sort-by-due-date     ; sort
-    (kbd "q") 'quit-window                    ; quit
-    (kbd "ZZ") 'quit-window                   ; quit (vim-style)
-    (kbd "ZQ") 'quit-window)                  ; quit without save
-
-  ;; Also support insert mode for quick access
-  (evil-define-key 'insert reminders-mode-map
-    (kbd "C-c C-c") 'evil-normal-state))
+  ;; Add hook to setup keybindings when entering reminders-mode
+  (add-hook 'reminders-mode-hook 'reminders--setup-evil-keybindings))
 
 ;;; Emacspeak advice
 
