@@ -152,6 +152,16 @@
 
 ;;; Display functions
 
+(defun reminders--show-notes (notes)
+  "Display NOTES in a popup buffer."
+  (with-current-buffer (get-buffer-create "*Reminder Notes*")
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      (insert notes)
+      (goto-char (point-min))
+      (view-mode)
+      (pop-to-buffer (current-buffer)))))
+
 (defun reminders--insert-reminder (reminder index)
   "Insert REMINDER at INDEX into the buffer."
   (let* ((title (alist-get 'title reminder))
@@ -171,7 +181,11 @@
                     title
                     due-str))
     (when notes
-      (insert (format "\n    Notes: %s" notes)))
+      (insert "\n    ")
+      (insert-button "Read Notes"
+                     'action (lambda (_button) (reminders--show-notes notes))
+                     'follow-link t
+                     'help-echo "Click to view notes"))
     (put-text-property start (point) 'reminder-data reminder)
     (put-text-property start (point) 'reminder-index index)
     (put-text-property start (point) 'face face)
