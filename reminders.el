@@ -13,6 +13,7 @@
 ;;; Code:
 
 (require 'json)
+(require 'seq)
 
 (defgroup reminders nil
   "Interface to macOS Reminders CLI."
@@ -58,6 +59,9 @@
 
 (defvar-local reminders-sort-by nil
   "Current sort method: nil, 'due-date, or 'creation-date.")
+
+(defvar-local reminders-sort-order 'ascending
+  "Current sort order: 'ascending or 'descending.")
 
 (defvar-local reminders-reminders-data nil
   "Cached reminders data for the current buffer.")
@@ -152,18 +156,42 @@
 
 ;;; Display functions
 
-(defun reminders--show-notes (notes)
-  "Display NOTES in a popup buffer."
-  (with-current-buffer (get-buffer-create "*Reminder Notes*")
-    (let ((inhibit-read-only t))
-      (erase-buffer)
-      (insert notes)
-      (goto-char (point-min))
-      (view-mode)
-      (pop-to-buffer (current-buffer)))))
+(defun reminders--save-notes-from-buffer ()
+  "Save edited notes back to the reminder."
+  (interactive)
+  (let ((list-name (buffer-local-value 'reminders--notes-list-name (current-buffer)))
+        (index (buffer-local-value 'reminders--notes-index (current-buffer)))
+        (title (buffer-local-value 'reminders--notes-title (current-buffer)))
+        (notes (buffer-substring-no-properties (point-min) (point-max))))
+    (when (and list-name index title)
+      (reminders--run-command "edit" list-name (number-to-string index)
+                              "--notes" notes title)
+      (message "Notes saved")
+      (quit-window)
+      ;; Refresh the reminders buffer if it exists
+      (let ((reminders-buffer (get-buffer (format "*Reminders: %s*" list-name))))
+        (when reminders-buffer
+          (with-current-buffer reminders-buffer
+            (reminders-refresh)))))))
 
-(defun reminders--insert-reminder (reminder index)
-  "Insert REMINDER at INDEX into the buffer."
+(defun reminders--show-notes (notes list-name index title)
+  "Display NOTES in an editable popup buffer for reminder at INDEX in LIST-NAME with TITLE."
+  (with-current-buffer (get-buffer-create "*Reminder Notes*")
+    (erase-buffer)
+    (insert notes)
+    (goto-char (point-min))
+    (text-mode)
+    (setq-local reminders--notes-list-name list-name)
+    (setq-local reminders--notes-index index)
+    (setq-local reminders--notes-title title)
+    (local-set-key (kbd "C-c C-c") 'reminders--save-notes-from-buffer)
+    (local-set-key (kbd "C-x C-s") 'reminders--save-notes-from-buffer)
+    (setq header-line-format "Edit notes - Save with C-c C-c or C-x C-s, quit with q")
+    (pop-to-buffer (current-buffer))))
+
+(defun reminders--insert-reminder (reminder index &optional use-letter)
+  "Insert REMINDER at INDEX into the buffer.
+If USE-LETTER is non-nil, use a letter (a, b, c...) instead of a number."
   (let* ((title (alist-get 'title reminder))
          (due-date (alist-get 'dueDate reminder))
          (priority (or (alist-get 'priority reminder) 0))
@@ -173,9 +201,12 @@
          (priority-str (reminders--priority-string priority))
          (checkbox (if is-completed "[X]" "[ ]"))
          (face (if is-completed 'shadow 'default))
-         (start (point)))
-    (insert (format "%2d: %s %s%s %s"
-                    index
+         (start (point))
+         (index-str (if use-letter
+                        (string (+ ?a index))
+                      (format "%2d" index))))
+    (insert (format "%2s: %s %s%s %s"
+                    index-str
                     checkbox
                     priority-str
                     title
@@ -183,9 +214,10 @@
     (when notes
       (insert "\n    ")
       (insert-button "Read Notes"
-                     'action (lambda (_button) (reminders--show-notes notes))
+                     'action (lambda (_button)
+                               (reminders--show-notes notes reminders-current-list index title))
                      'follow-link t
-                     'help-echo "Click to view notes"))
+                     'help-echo "Click to view and edit notes"))
     (put-text-property start (point) 'reminder-data reminder)
     (put-text-property start (point) 'reminder-index index)
     (put-text-property start (point) 'face face)
@@ -208,35 +240,72 @@
                            (if is-completed 'voice-monotone 'voice-bolden))))
     (insert "\n")))
 
+(defun reminders--recently-completed-p (reminder)
+  "Return t if REMINDER was completed in the last 7 days."
+  (when-let* ((is-completed (eq (alist-get 'isCompleted reminder) t))
+              (completion-date (alist-get 'completionDate reminder))
+              (parsed-date (reminders--parse-iso8601 completion-date))
+              (now (current-time))
+              (days-ago (- (time-to-days now) (time-to-days parsed-date))))
+    (and (<= days-ago 7) (>= days-ago 0))))
+
 (defun reminders--display-reminders (list-name)
   "Display reminders from LIST-NAME."
   (message "Loading reminders from %s..." list-name)
   (let* ((args (list "show" list-name))
-         (args (if reminders-show-completed
-                   (append args '("--include-completed"))
-                 args))
+         ;; Always include completed to show recently completed
+         (args (append args '("--include-completed")))
          (args (if reminders-sort-by
-                   (append args (list "--sort" (symbol-name reminders-sort-by)))
+                   (append args (list "--sort" (symbol-name reminders-sort-by)
+                                      "--sort-order" (symbol-name reminders-sort-order)))
                  args))
-         (reminders (apply 'reminders--run-command-json args)))
-    (setq reminders-reminders-data reminders)
+         (all-reminders (apply 'reminders--run-command-json args))
+         ;; Separate active and recently completed
+         (active-reminders (seq-filter
+                           (lambda (r)
+                             (not (eq (alist-get 'isCompleted r) t)))
+                           all-reminders))
+         (recently-completed (seq-filter 'reminders--recently-completed-p all-reminders))
+         ;; Keep all for data storage
+         (display-reminders (if reminders-show-completed
+                               all-reminders
+                             (append active-reminders recently-completed))))
+    (setq reminders-reminders-data all-reminders)
     (let ((inhibit-read-only t)
           (index 0))
       (erase-buffer)
       (insert (format "Reminders - %s" list-name))
       (when reminders-show-completed
-        (insert " [showing completed]"))
+        (insert " [showing all completed]"))
       (when reminders-sort-by
-        (insert (format " [sorted by %s]" reminders-sort-by)))
+        (insert (format " [sorted by %s %s]" reminders-sort-by reminders-sort-order)))
       (insert "\n\n")
       (insert "Commands: [RET] toggle  [a] add  [e] edit  [d] delete  [g] refresh  [l] switch list  [t] toggle completed  [q] quit\n")
       (insert "          [N] notes  [P] priority  [D] due date  [s] sort  [L] all lists\n\n")
-      (if (null reminders)
-          (insert "No reminders.\n")
-        (dolist (reminder reminders)
-          (reminders--insert-reminder reminder index)
-          (setq index (1+ index)))))
-    (message "Loaded %d reminders from %s" (length reminders) list-name)))
+      (if reminders-show-completed
+          ;; Show all reminders as before when in show-completed mode
+          (progn
+            (if (null all-reminders)
+                (insert "No reminders.\n")
+              (dolist (reminder all-reminders)
+                (reminders--insert-reminder reminder index)
+                (setq index (1+ index)))))
+        ;; Normal mode: show active with numbers, recently completed with letters
+        (if (null active-reminders)
+            (insert "No active reminders.\n")
+          (dolist (reminder active-reminders)
+            (reminders--insert-reminder reminder index)
+            (setq index (1+ index))))
+        (when recently-completed
+          (insert "\nRecently Completed (last 7 days):\n")
+          (setq index 0)
+          (dolist (reminder recently-completed)
+            (reminders--insert-reminder reminder index t)
+            (setq index (1+ index))))))
+    (message "Loaded %d active, %d recently completed from %s"
+             (length active-reminders)
+             (length recently-completed)
+             list-name)))
 
 ;;; Interactive commands
 
@@ -370,12 +439,41 @@
   (reminders-refresh))
 
 (defun reminders-sort-by-due-date ()
-  "Toggle sorting by due date."
+  "Cycle through sort options: none -> due-date asc -> due-date desc -> creation-date asc -> creation-date desc -> none."
   (interactive)
-  (setq reminders-sort-by
-        (if (eq reminders-sort-by 'due-date)
-            nil
-          'due-date))
+  (cond
+   ;; No sorting -> due-date ascending
+   ((null reminders-sort-by)
+    (setq reminders-sort-by 'due-date
+          reminders-sort-order 'ascending)
+    (message "Sorting by due-date (ascending)"))
+   ;; due-date ascending -> due-date descending
+   ((and (eq reminders-sort-by 'due-date)
+         (eq reminders-sort-order 'ascending))
+    (setq reminders-sort-order 'descending)
+    (message "Sorting by due-date (descending)"))
+   ;; due-date descending -> creation-date ascending
+   ((and (eq reminders-sort-by 'due-date)
+         (eq reminders-sort-order 'descending))
+    (setq reminders-sort-by 'creation-date
+          reminders-sort-order 'ascending)
+    (message "Sorting by creation-date (ascending)"))
+   ;; creation-date ascending -> creation-date descending
+   ((and (eq reminders-sort-by 'creation-date)
+         (eq reminders-sort-order 'ascending))
+    (setq reminders-sort-order 'descending)
+    (message "Sorting by creation-date (descending)"))
+   ;; creation-date descending -> no sorting
+   ((and (eq reminders-sort-by 'creation-date)
+         (eq reminders-sort-order 'descending))
+    (setq reminders-sort-by nil
+          reminders-sort-order 'ascending)
+    (message "Sorting disabled"))
+   ;; fallback
+   (t
+    (setq reminders-sort-by nil
+          reminders-sort-order 'ascending)
+    (message "Sorting disabled")))
   (reminders-refresh))
 
 (defun reminders-show-all-lists ()
