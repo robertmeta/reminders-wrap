@@ -312,7 +312,7 @@ Returns list with display-index added to each reminder."
       (if (and (boundp 'evil-mode) evil-mode (eq evil-state 'normal))
           ;; Evil mode keybindings
           (progn
-            (insert "Commands: [c/RET] toggle  [a] add  [e/cc] edit  [dd/x] delete  [gr/R] refresh  [l] list  [t] toggle completed  [q] quit\n")
+            (insert "Commands: [c/RET] toggle  [a] add  [e] edit  [x] delete  [r] refresh  [l] list  [t] toggle completed  [q] quit\n")
             (insert "          [N] notes  [P] priority  [D] due date  [s] sort  [L] all lists  [j/k] move\n\n"))
         ;; Emacs keybindings
         (progn
@@ -554,9 +554,9 @@ Emacs keybindings:
 Evil mode keybindings (when Evil is loaded):
   c, RET     - Toggle completion status
   a, A       - Add new reminder
-  dd, x      - Delete reminder
-  e, cc      - Edit reminder
-  gr, R      - Refresh list
+  x, X       - Delete reminder
+  e, E       - Edit reminder
+  r, R       - Refresh list
   l          - Switch list
   L          - Show all lists
   t          - Toggle show completed
@@ -564,8 +564,8 @@ Evil mode keybindings (when Evil is loaded):
   P          - Set priority
   D          - Set due date
   s          - Cycle sort options
-  j/k/h/0/$  - Vim motions
-  gg, G      - Jump to top/bottom
+  j/k/h/0/$  - Standard vim motions (use default Evil bindings)
+  gg, G      - Jump to top/bottom (use default Evil bindings)
   q, ZZ, ZQ  - Quit window"
   (setq truncate-lines t)
   (setq buffer-read-only t)
@@ -590,11 +590,11 @@ Evil mode keybindings (when Evil is loaded):
     (evil-local-set-key 'normal (kbd "c") 'reminders-toggle-complete)
     (evil-local-set-key 'normal (kbd "a") 'reminders-add)
     (evil-local-set-key 'normal (kbd "A") 'reminders-add)
-    (evil-local-set-key 'normal (kbd "dd") 'reminders-delete)
     (evil-local-set-key 'normal (kbd "x") 'reminders-delete)
+    (evil-local-set-key 'normal (kbd "X") 'reminders-delete)
     (evil-local-set-key 'normal (kbd "e") 'reminders-edit)
-    (evil-local-set-key 'normal (kbd "cc") 'reminders-edit)
-    (evil-local-set-key 'normal (kbd "gr") 'reminders-refresh)
+    (evil-local-set-key 'normal (kbd "E") 'reminders-edit)
+    (evil-local-set-key 'normal (kbd "r") 'reminders-refresh)
     (evil-local-set-key 'normal (kbd "R") 'reminders-refresh)
     (evil-local-set-key 'normal (kbd "l") 'reminders-switch-list)
     (evil-local-set-key 'normal (kbd "L") 'reminders-show-all-lists)
@@ -605,15 +605,7 @@ Evil mode keybindings (when Evil is loaded):
     (evil-local-set-key 'normal (kbd "s") 'reminders-sort-by-due-date)
     (evil-local-set-key 'normal (kbd "q") 'quit-window)
     (evil-local-set-key 'normal (kbd "ZZ") 'quit-window)
-    (evil-local-set-key 'normal (kbd "ZQ") 'quit-window)
-    ;; Keep standard vim motions
-    (evil-local-set-key 'normal (kbd "j") 'evil-next-line)
-    (evil-local-set-key 'normal (kbd "k") 'evil-previous-line)
-    (evil-local-set-key 'normal (kbd "h") 'evil-backward-char)
-    (evil-local-set-key 'normal (kbd "0") 'evil-beginning-of-line)
-    (evil-local-set-key 'normal (kbd "$") 'evil-end-of-line)
-    (evil-local-set-key 'normal (kbd "gg") 'evil-goto-first-line)
-    (evil-local-set-key 'normal (kbd "G") 'evil-goto-line)))
+    (evil-local-set-key 'normal (kbd "ZQ") 'quit-window)))
 
 (with-eval-after-load 'evil
   ;; Use normal state for vim-like bindings
