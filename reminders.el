@@ -313,7 +313,7 @@ Returns list with display-index added to each reminder."
       (if (and (boundp 'evil-mode) evil-mode (eq evil-state 'normal))
           ;; Evil mode keybindings
           (progn
-            (insert "Commands: [c/RET] toggle  [a] add  [e] edit  [x] delete  [r] refresh  [l] list  [t] toggle completed  [q] quit  [?] help\n")
+            (insert "Commands: [c/RET] toggle  [a] add  [A] add w/date  [e] edit  [x] delete  [r] refresh  [l] list  [t] toggle completed  [q] quit  [?] help\n")
             (insert "          [N] notes  [P] priority  [D] due date  [s] sort  [L] all lists  [j/k] move\n\n"))
         ;; Emacs keybindings
         (progn
@@ -377,6 +377,16 @@ Returns list with display-index added to each reminder."
       (setq args (append args (list "--notes" notes))))
     (apply 'reminders--run-command args)
     (message "Added: %s" title)
+    (reminders-refresh)))
+
+(defun reminders-add-with-date (title)
+  "Add a new reminder with TITLE and prompt for a due date using org-read-date."
+  (interactive "sReminder: ")
+  (require 'org)
+  (let* ((date (org-read-date nil nil nil "Due date: " (current-time)))
+         (args (list "add" reminders-current-list title "--due-date" date)))
+    (apply 'reminders--run-command args)
+    (message "Added: %s (due: %s)" title date)
     (reminders-refresh)))
 
 (defun reminders-toggle-complete ()
@@ -584,7 +594,8 @@ Returns list with display-index added to each reminder."
 
       (insert "EVIL MODE KEYBINDINGS (when Evil is active):\n")
       (insert "  RET, c  - Toggle completion status\n")
-      (insert "  a, A    - Add new reminder\n")
+      (insert "  a       - Add new reminder\n")
+      (insert "  A       - Add new reminder with date picker\n")
       (insert "  x, X    - Delete reminder\n")
       (insert "  e, E    - Edit reminder\n")
       (insert "  r, R    - Refresh list\n")
@@ -672,7 +683,7 @@ Evil mode keybindings (when Evil is loaded):
     (evil-local-set-key 'normal (kbd "RET") 'reminders-toggle-complete)
     (evil-local-set-key 'normal (kbd "c") 'reminders-toggle-complete)
     (evil-local-set-key 'normal (kbd "a") 'reminders-add)
-    (evil-local-set-key 'normal (kbd "A") 'reminders-add)
+    (evil-local-set-key 'normal (kbd "A") 'reminders-add-with-date)
     (evil-local-set-key 'normal (kbd "x") 'reminders-delete)
     (evil-local-set-key 'normal (kbd "X") 'reminders-delete)
     (evil-local-set-key 'normal (kbd "e") 'reminders-edit)
@@ -722,6 +733,11 @@ Evil mode keybindings (when Evil is loaded):
 
   (defadvice reminders-add (after emacspeak activate)
     "Provide auditory feedback when adding a reminder."
+    (when (ems-interactive-p)
+      (emacspeak-icon 'item)))
+
+  (defadvice reminders-add-with-date (after emacspeak activate)
+    "Provide auditory feedback when adding a reminder with date."
     (when (ems-interactive-p)
       (emacspeak-icon 'item)))
 
