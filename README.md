@@ -1,5 +1,9 @@
 # reminders.el - Emacs Interface for macOS Reminders
 
+<p align="center">
+  <img src="logo.png" alt="reminders-wrap logo" width="200">
+</p>
+
 An Emacs package providing a full-featured interface to the macOS `reminders` CLI tool, with enhanced accessibility support for Emacspeak users.
 
 ## Features
